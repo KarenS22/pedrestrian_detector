@@ -16,14 +16,14 @@
 #include <sstream>
 
 #include "config.hpp"
-#include "utils/telegram_sender.hpp"
+// #include "utils/telegram_sender.hpp" // REMOVED
 
 namespace fs = std::filesystem;
 
 class PersonDetector {
 private:
   cv::dnn::Net net_;
-  TelegramSender telegram_;
+  // TelegramSender telegram_; // REMOVED
   Config::Stats stats_;
 
   std::chrono::steady_clock::time_point last_detection_time_;
@@ -32,9 +32,7 @@ private:
   std::vector<cv::Mat> video_frames_;
 
 public:
-  PersonDetector()
-      : telegram_(Config::TELEGRAM_BOT_TOKEN, Config::TELEGRAM_CHAT_ID),
-        recording_video_(false) {
+  PersonDetector() : recording_video_(false) {
 
     // Crear directorios necesarios
     fs::create_directories(Config::DETECTIONS_DIR);
@@ -43,11 +41,10 @@ public:
     // Cargar modelo YOLO
     loadModel();
 
-    // Verificar conexión con Telegram
-    if (!telegram_.testConnection()) {
-      std::cerr << "⚠️  No se pudo conectar con Telegram" << std::endl;
-      std::cerr << "   Verifica el token y chat_id en config.hpp" << std::endl;
-    }
+    // Cargar modelo YOLO
+    loadModel();
+
+    // Telegram connection check removed
 
     last_detection_time_ = std::chrono::steady_clock::now();
   }
@@ -363,11 +360,12 @@ public:
       std::string abs_video_path = fs::absolute(video_path).string();
 
       // 2. Enviar Video
-      std::string video_command =
-          "curl -X POST \"http://localhost:8000/detect\" "
-          "-H \"Content-Type: application/json\" "
-          "-d '{\"file_path\": \"" +
-          abs_video_path + "\"}' &";
+      std::string video_command = "curl -X POST \"" +
+                                  Config::PYTHON_SERVER_URL +
+                                  "\" "
+                                  "-H \"Content-Type: application/json\" "
+                                  "-d '{\"file_path\": \"" +
+                                  abs_video_path + "\"}' &";
 
       system(video_command.c_str());
       std::cout << "⚡ HTTP Request sent for Video: " << abs_video_path
@@ -460,22 +458,44 @@ public:
       drawStats(display_frame, fps);
 
       // Si está grabando video
+      std::string finished_video_path = "";
       if (recording_video_) {
         addVideoFrame(display_frame);
 
         // Detener después de N segundos
         if (video_frames_.size() >= Config::VIDEO_DURATION_SECONDS * 30) {
-          std::string video_path = saveVideo(30);
-
-          if (!video_path.empty()) {
-            telegram_.sendVideo(video_path, "🎥 Video de detección");
+          finished_video_path = saveVideo(30);
+          if (!finished_video_path.empty()) {
             stats_.videos_sent++;
           }
         }
       }
 
       // Manejar detección
+      // Si tenemos un video recién terminado, forzamos el envío aunque no haya
+      // caja en este frame exacto? No, la lógica es: si hay cajas, se envía
+      // foto. Si ADEMAS hay video listo, se envía video. Pero si el video
+      // termina justo cuando no hay cajas, ¿qué pasa? El usuario quiere que
+      // "python igual envie el video". Lo mejor es: si hay video, enviarlo
+      // independientemente de si hay cajas en ESTE frame.
+
+      if (!finished_video_path.empty()) {
+        std::string abs_video_path = fs::absolute(finished_video_path).string();
+        std::string video_command = "curl -X POST \"" +
+                                    Config::PYTHON_SERVER_URL +
+                                    "\" "
+                                    "-H \"Content-Type: application/json\" "
+                                    "-d '{\"file_path\": \"" +
+                                    abs_video_path + "\"}' &";
+
+        system(video_command.c_str());
+        std::cout << "⚡ HTTP Request sent for Video: " << abs_video_path
+                  << std::endl;
+      }
+
       if (!boxes.empty() && !recording_video_) {
+        // Pasamos string vacío para video porque ya lo manejamos arriba si
+        // existía
         handleDetection(display_frame, boxes);
       }
 

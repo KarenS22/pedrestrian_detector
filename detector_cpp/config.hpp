@@ -12,15 +12,12 @@
 
 namespace Config {
 
-// ============= TELEGRAM BOT =============
-const std::string TELEGRAM_BOT_TOKEN =
-    "8217523094:AAFcd_vhnvxUD2pAwN9cB-IEyf93vOaAc8g";
-const std::string TELEGRAM_CHAT_ID = "1623681551";
-const std::string TELEGRAM_API_URL = "https://api.telegram.org/bot";
+// ============= SERVIDOR PYTHON =============
+const std::string PYTHON_SERVER_URL = "http://localhost:8000/detect";
 
 // ============= MODELO YOLO =============
 const std::string YOLO_MODEL_PATH = "../models/yolov8n.onnx";
-const float CONFIDENCE_THRESHOLD = 0.9f;
+const float CONFIDENCE_THRESHOLD = 0.7f;
 const float NMS_THRESHOLD = 0.4f;
 const int INPUT_WIDTH = 640;
 const int INPUT_HEIGHT = 640;
@@ -29,7 +26,7 @@ const int INPUT_HEIGHT = 640;
 const int PERSON_CLASS_ID = 0;
 
 // ============= CÁMARA =============
-const int CAMERA_INDEX = 0;
+const int CAMERA_INDEX = 2;
 const int CAMERA_WIDTH = 1280;
 const int CAMERA_HEIGHT = 720;
 const int CAMERA_FPS = 30;

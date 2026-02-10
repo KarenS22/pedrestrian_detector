@@ -15,7 +15,6 @@ include_directories(${CURL_INCLUDE_DIR})
 # Archivos fuente
 set(SOURCES
     main.cpp
-    utils/telegram_sender.cpp
 )
 
 # Crear ejecutable
