@@ -1,0 +1,8 @@
+.env
+.vscode
+bot_telegram/__pycache__
+.venv/
+detector_cpp/build
+.cache/
+outputs/
+
