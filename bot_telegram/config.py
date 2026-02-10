@@ -11,7 +11,8 @@ load_dotenv()
 
 # ============= TELEGRAM =============
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-ALLOWED_USER_IDS = []  # Lista de IDs de usuarios permitidos (vacío = todos)
+TELEGRAM_CHAT_ID = "1623681551"  # ID del usuario principal
+ALLOWED_USER_IDS = [int(TELEGRAM_CHAT_ID)]  # Lista de IDs de usuarios permitidos
 
 # ============= RUTAS =============
 BASE_DIR = Path(__file__).parent
@@ -33,21 +34,28 @@ POSE_MODEL_CONFIG = {
     'conf_threshold': 0.3,  # Umbral de confianza para keypoints
 }
 
-# ============= DETECCIÓN DE POSTURA =============
-# Keypoints COCO (17 puntos)
+# ============= DETECCIÓN DE POSTURA (MEDIAPIPE) =============
+# Keypoints MediaPipe (33 puntos)
 COCO_KEYPOINTS = [
-    'nose', 'left_eye', 'right_eye', 'left_ear', 'right_ear',
+    'nose', 'left_eye_inner', 'left_eye', 'left_eye_outer', 
+    'right_eye_inner', 'right_eye', 'right_eye_outer',
+    'left_ear', 'right_ear', 'mouth_left', 'mouth_right',
     'left_shoulder', 'right_shoulder', 'left_elbow', 'right_elbow',
-    'left_wrist', 'right_wrist', 'left_hip', 'right_hip',
-    'left_knee', 'right_knee', 'left_ankle', 'right_ankle'
+    'left_wrist', 'right_wrist', 'left_pinky', 'right_pinky',
+    'left_index', 'right_index', 'left_thumb', 'right_thumb',
+    'left_hip', 'right_hip', 'left_knee', 'right_knee',
+    'left_ankle', 'right_ankle', 'left_heel', 'right_heel',
+    'left_foot_index', 'right_foot_index'
 ]
 
-# Conexiones para dibujar el esqueleto
+# Conexiones para dibujar el esqueleto (MediaPipe)
 SKELETON_CONNECTIONS = [
-    (0, 1), (0, 2), (1, 3), (2, 4),  # Cabeza
-    (5, 6), (5, 7), (7, 9), (6, 8), (8, 10),  # Brazos
-    (5, 11), (6, 12), (11, 12),  # Torso
-    (11, 13), (13, 15), (12, 14), (14, 16)  # Piernas
+    (0, 1), (1, 2), (2, 3), (3, 7), (0, 4), (4, 5), (5, 6), (6, 8), # Cara
+    (9, 10), (11, 12), (11, 13), (13, 15), (15, 17), (15, 19), (15, 21), # Brazo Izq
+    (12, 14), (14, 16), (16, 18), (16, 20), (16, 22), # Brazo Der
+    (11, 23), (12, 24), (23, 24), # Torso
+    (23, 25), (25, 27), (27, 29), (29, 31), (27, 31), # Pierna Izq
+    (24, 26), (26, 28), (28, 30), (30, 32), (28, 32)  # Pierna Der
 ]
 
 # ============= VIDEO =============

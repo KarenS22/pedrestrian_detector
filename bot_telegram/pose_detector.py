@@ -12,11 +12,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 try:
-    from mmpose.apis import init_model, inference_topdown
-    from mmpose.structures import merge_data_samples
+    import mediapipe as mp
     MMPOSE_AVAILABLE = True
 except ImportError:
-    logger.warning("MMPose no disponible. Usando detección simulada.")
+    logger.warning("MediaPipe no disponible. Usando detección simulada.")
     MMPOSE_AVAILABLE = False
 
 from config import (
@@ -28,258 +27,147 @@ from config import (
 
 
 class PoseDetector:
-    """Detector de postura humana usando MMPose"""
+    """Detector de postura humana usando MediaPipe"""
     
     def __init__(self):
         self.device = POSE_MODEL_CONFIG['device']
         self.conf_threshold = POSE_MODEL_CONFIG['conf_threshold']
-        self.model = None
         
-        # Intentar cargar modelo real
+        # Inicializar MediaPipe Pose
         if MMPOSE_AVAILABLE:
-            self._load_model()
-        else:
-            logger.warning("Usando modo simulado (sin MMPose)")
-    
-    def _load_model(self):
-        """Cargar modelo MMPose"""
-        try:
-            # Configuración para HRNet
-            config_file = 'https://download.openmmlab.com/mmpose/v1/body_2d_keypoint/topdown_heatmap/coco/td-hm_hrnet-w48_8xb32-210e_coco-256x192_20220915-a3f6a4c6.py'
-            checkpoint_file = 'https://download.openmmlab.com/mmpose/v1/body_2d_keypoint/topdown_heatmap/coco/td-hm_hrnet-w48_8xb32-210e_coco-256x192_20220915-a3f6a4c6.pth'
+            import mediapipe as mp # Importar aquí para evitar error si no está instalado
+            self.mp_pose = mp.solutions.pose
+            self.mp_drawing = mp.solutions.drawing_utils
+            self.mp_drawing_styles = mp.solutions.drawing_styles
             
-            self.model = init_model(
-                config_file,
-                checkpoint_file,
-                device=self.device
+            # Inicializar detector
+            # static_image_mode=True para imágenes, False para video (más fluido)
+            # Aquí usaremos True por simplicidad y porque procesamos frames individuales a veces
+            self.pose_model = self.mp_pose.Pose(
+                static_image_mode=True,
+                model_complexity=1, # 0=Lite, 1=Full, 2=Heavy
+                enable_segmentation=False,
+                min_detection_confidence=0.5
             )
-            logger.info(f"Modelo cargado en {self.device}")
-        except Exception as e:
-            logger.error(f"Error cargando modelo: {e}")
-            self.model = None
+            logger.info("Modelo MediaPipe inicializado")
+        else:
+            logger.warning("MediaPipe no disponible. Usando modo simulado.")
+            self.pose_model = None
     
     def detect_pose(self, image: np.ndarray, bboxes: List[List[float]] = None) -> Dict:
         """
-        Detectar posturas en la imagen
-        
-        Args:
-            image: Imagen BGR (numpy array)
-            bboxes: Lista de bounding boxes [[x1, y1, x2, y2], ...]
-                   Si es None, se asume toda la imagen
-        
-        Returns:
-            Dict con keypoints, scores y metadata
+        Detectar posturas en la imagen usando MediaPipe
+        Nota: MediaPipe Standard detecta solo a la persona más prominente por defecto.
         """
-        if self.model is None or not MMPOSE_AVAILABLE:
+        if self.pose_model is None or not MMPOSE_AVAILABLE:
             return self._simulate_detection(image, bboxes)
-        
-        try:
-            # Si no hay bboxes, detectar en toda la imagen
-            if bboxes is None or len(bboxes) == 0:
-                h, w = image.shape[:2]
-                bboxes = [[0, 0, w, h]]
             
-            # Preparar datos de entrada
-            batch_data = []
-            for bbox in bboxes:
-                data_info = {
-                    'img': image,
-                    'bbox': np.array(bbox, dtype=np.float32),
-                    'bbox_score': 1.0
-                }
-                batch_data.append(data_info)
+        try:
+            # MediaPipe requiere RGB
+            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             
             # Inferencia
-            results = inference_topdown(self.model, image, bboxes)
+            results = self.pose_model.process(image_rgb)
             
-            # Procesar resultados
             keypoints_list = []
             scores_list = []
             
-            for result in results:
-                keypoints = result.pred_instances.keypoints[0]  # (17, 2)
-                scores = result.pred_instances.keypoint_scores[0]  # (17,)
+            if results.pose_landmarks:
+                # Convertir landmarks a formato similar para compatibilidad
+                h, w, _ = image.shape
+                keypoints = []
+                scores = []
                 
-                keypoints_list.append(keypoints)
-                scores_list.append(scores)
+                for landmark in results.pose_landmarks.landmark:
+                    # Convertir coordenadas normalizadas a píxeles
+                    px, py = landmark.x * w, landmark.y * h
+                    keypoints.append([px, py])
+                    scores.append(landmark.visibility) # Usamos visibilidad como score
+                
+                keypoints_list.append(np.array(keypoints))
+                scores_list.append(np.array(scores))
             
             return {
                 'keypoints': keypoints_list,
                 'scores': scores_list,
                 'num_persons': len(keypoints_list),
-                'image_shape': image.shape[:2]
+                'image_shape': image.shape[:2],
+                'raw_results': results # Guardar objeto original para dibujo fácil
             }
             
         except Exception as e:
             logger.error(f"Error en detección: {e}")
             return self._simulate_detection(image, bboxes)
-    
+
     def _simulate_detection(self, image: np.ndarray, bboxes: List = None) -> Dict:
-        """Simulación de detección para testing sin MMPose"""
-        h, w = image.shape[:2]
-        
-        if bboxes is None or len(bboxes) == 0:
-            num_persons = 1
-            # Simular keypoints en el centro
-            keypoints = np.array([
-                [w*0.5, h*0.2],   # nose
-                [w*0.48, h*0.18], # left_eye
-                [w*0.52, h*0.18], # right_eye
-                [w*0.46, h*0.2],  # left_ear
-                [w*0.54, h*0.2],  # right_ear
-                [w*0.45, h*0.35], # left_shoulder
-                [w*0.55, h*0.35], # right_shoulder
-                [w*0.42, h*0.5],  # left_elbow
-                [w*0.58, h*0.5],  # right_elbow
-                [w*0.40, h*0.65], # left_wrist
-                [w*0.60, h*0.65], # right_wrist
-                [w*0.46, h*0.6],  # left_hip
-                [w*0.54, h*0.6],  # right_hip
-                [w*0.45, h*0.75], # left_knee
-                [w*0.55, h*0.75], # right_knee
-                [w*0.44, h*0.9],  # left_ankle
-                [w*0.56, h*0.9],  # right_ankle
-            ], dtype=np.float32)
-            keypoints_list = [keypoints]
-        else:
-            num_persons = len(bboxes)
-            keypoints_list = []
-            for bbox in bboxes:
-                x1, y1, x2, y2 = bbox
-                cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
-                # Simular keypoints relativos al bbox
-                keypoints = np.array([
-                    [cx, y1 + (y2-y1)*0.1],
-                    [cx - (x2-x1)*0.05, y1 + (y2-y1)*0.08],
-                    [cx + (x2-x1)*0.05, y1 + (y2-y1)*0.08],
-                    # ... (simplificado para simulación)
-                ] + [[cx, cy]] * 14, dtype=np.float32)
-                keypoints_list.append(keypoints)
-        
-        scores_list = [np.ones(17) * 0.9 for _ in range(num_persons)]
-        
+        # Simplificado para mantener compatibilidad si falla MP
         return {
-            'keypoints': keypoints_list,
-            'scores': scores_list,
-            'num_persons': num_persons,
-            'image_shape': (h, w)
+            'keypoints': [],
+            'scores': [],
+            'num_persons': 0,
+            'image_shape': image.shape[:2]
         }
     
     def draw_pose(self, image: np.ndarray, detection_result: Dict) -> np.ndarray:
-        """
-        Dibujar posturas detectadas en la imagen
-        
-        Args:
-            image: Imagen original
-            detection_result: Resultado de detect_pose()
-        
-        Returns:
-            Imagen con posturas dibujadas
-        """
+        """Dibujar usando utilidades de MediaPipe"""
+        if 'raw_results' not in detection_result or not MMPOSE_AVAILABLE:
+            return image.copy()
+            
         img_pose = image.copy()
+        results = detection_result['raw_results']
         
-        keypoints_list = detection_result['keypoints']
-        scores_list = detection_result['scores']
-        
-        for keypoints, scores in zip(keypoints_list, scores_list):
-            # Dibujar conexiones (esqueleto)
-            for connection in SKELETON_CONNECTIONS:
-                idx1, idx2 = connection
-                if scores[idx1] > self.conf_threshold and scores[idx2] > self.conf_threshold:
-                    pt1 = tuple(map(int, keypoints[idx1]))
-                    pt2 = tuple(map(int, keypoints[idx2]))
-                    cv2.line(
-                        img_pose,
-                        pt1,
-                        pt2,
-                        VISUALIZATION_CONFIG['skeleton_color'],
-                        VISUALIZATION_CONFIG['line_thickness']
-                    )
+        if results.pose_landmarks:
+            self.mp_drawing.draw_landmarks(
+                img_pose,
+                results.pose_landmarks,
+                self.mp_pose.POSE_CONNECTIONS,
+                landmark_drawing_spec=self.mp_drawing_styles.get_default_pose_landmarks_style()
+            )
             
-            # Dibujar keypoints
-            for idx, (keypoint, score) in enumerate(zip(keypoints, scores)):
-                if score > self.conf_threshold:
-                    pt = tuple(map(int, keypoint))
-                    cv2.circle(
-                        img_pose,
-                        pt,
-                        VISUALIZATION_CONFIG['keypoint_radius'],
-                        VISUALIZATION_CONFIG['keypoint_color'],
-                        -1
-                    )
-                    # Opcional: agregar etiquetas
-                    # cv2.putText(img_pose, COCO_KEYPOINTS[idx], pt, ...)
-        
-        # Agregar contador de personas
+        # Agregar contador
         num_persons = detection_result['num_persons']
-        text = f"Personas detectadas: {num_persons}"
-        cv2.putText(
-            img_pose,
-            text,
-            (10, 30),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            VISUALIZATION_CONFIG['font_scale'],
-            VISUALIZATION_CONFIG['text_color'],
-            2
-        )
-        
+        cv2.putText(img_pose, f"MediaPipe: {num_persons} persona", (10, 30),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                   
         return img_pose
-    
+
     def analyze_posture(self, detection_result: Dict) -> List[str]:
-        """
-        Analizar tipo de postura (erguida, agachada, caída, etc.)
-        
-        Returns:
-            Lista de descripciones de postura para cada persona
-        """
+        """Analizar postura basado en landmarks de MediaPipe (33 puntos)"""
+        if detection_result['num_persons'] == 0:
+            return []
+            
         postures = []
-        
-        for keypoints, scores in zip(
-            detection_result['keypoints'],
-            detection_result['scores']
-        ):
-            # Calcular ángulos y posiciones
+        for keypoints in detection_result['keypoints']:
+            # Índices MediaPipe:
+            # 0: Nariz
+            # 11, 12: Hombros
+            # 23, 24: Caderas
+            # 27, 28: Tobillos
+            
             nose = keypoints[0]
-            left_shoulder = keypoints[5]
-            right_shoulder = keypoints[6]
-            left_hip = keypoints[11]
-            right_hip = keypoints[12]
-            left_ankle = keypoints[15]
-            right_ankle = keypoints[16]
+            shoulder_y = (keypoints[11][1] + keypoints[12][1]) / 2
+            hip_y = (keypoints[23][1] + keypoints[24][1]) / 2
+            ankle_y = (keypoints[27][1] + keypoints[28][1]) / 2
             
-            # Centro de hombros y caderas
-            shoulder_center = (left_shoulder + right_shoulder) / 2
-            hip_center = (left_hip + right_hip) / 2
+            # Alturas relativas
+            torso_height = abs(hip_y - shoulder_y)
+            leg_height = abs(ankle_y - hip_y)
             
-            # Altura relativa
-            torso_height = np.linalg.norm(shoulder_center - hip_center)
-            total_height = np.linalg.norm(nose - (left_ankle + right_ankle) / 2)
-            
-            # Clasificación simple de postura
-            if total_height < 100:  # Muy bajo
-                posture = "Caída o agachada"
-            elif torso_height / total_height > 0.4:
-                posture = "Erguida"
-            elif torso_height / total_height > 0.25:
-                posture = "Inclinada"
+            # Lógica simple
+            if torso_height < 20: # Muy comprimido
+                posture = "Agachada/Caída"
+            elif leg_height < torso_height * 0.8: # Piernas dobladas
+                posture = "Sentada/Agachada"
             else:
-                posture = "Agachada"
-            
+                posture = "Erguida"
+                
             postures.append(posture)
-        
+            
         return postures
-    
+
     def get_statistics(self, detection_result: Dict) -> Dict:
-        """Obtener estadísticas de la detección"""
-        keypoints_list = detection_result['keypoints']
-        scores_list = detection_result['scores']
-        
-        total_keypoints = sum(len(kp) for kp in keypoints_list)
-        avg_confidence = np.mean([s.mean() for s in scores_list]) if scores_list else 0
-        
         return {
             'num_persons': detection_result['num_persons'],
-            'total_keypoints': total_keypoints,
-            'avg_confidence': float(avg_confidence),
-            'keypoints_per_person': 17
+            'total_keypoints': 33,
+            'avg_confidence': 1.0 # Placeholder
         }

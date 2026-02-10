@@ -5,6 +5,7 @@
  * Detecta personas usando YOLO.onnx y envía resultados al Bot de Telegram
  */
 
+#include <algorithm>
 #include <chrono>
 #include <iostream>
 #include <opencv2/dnn.hpp>
@@ -96,9 +97,19 @@ public:
     net_.forward(outputs, net_.getUnconnectedOutLayersNames());
 
     // Procesar salidas (YOLOv8)
-    float *data = (float *)outputs[0].data;
-    const int dimensions = 85;           // 4 bbox + 1 conf + 80 clases
-    const int rows = outputs[0].size[2]; // Número de detecciones
+    // Output shape: [1, 84, 8400] -> [batch, channels, anchors]
+    cv::Mat output0 = outputs[0];
+    int rows = output0.size[2];       // 8400 (anchors)
+    int dimensions = output0.size[1]; // 84 (4 bbox + 80 classes)
+
+    // Reshape to 2D matrix (84 x 8400)
+    cv::Mat output2d(dimensions, rows, CV_32F, output0.ptr<float>());
+
+    // Transpose to (8400 x 84) for easier row-by-row access
+    cv::Mat output_t;
+    cv::transpose(output2d, output_t);
+
+    float *data = (float *)output_t.data;
 
     std::vector<int> class_ids;
     std::vector<cv::Rect> temp_boxes;
@@ -110,18 +121,19 @@ public:
     for (int i = 0; i < rows; ++i) {
       float *row = data + i * dimensions;
 
-      float confidence = row[4];
+      // YOLOv8: 0-3 are bbox, 4-83 are class scores
+      float *classes_scores = row + 4;
 
-      if (confidence >= Config::CONFIDENCE_THRESHOLD) {
-        float *classes_scores = row + 5;
+      cv::Mat scores(1, 80, CV_32FC1, classes_scores);
+      cv::Point class_id;
+      double max_class_score;
+      cv::minMaxLoc(scores, 0, &max_class_score, 0, &class_id);
 
-        cv::Mat scores(1, 80, CV_32FC1, classes_scores);
-        cv::Point class_id;
-        double max_class_score;
-        cv::minMaxLoc(scores, 0, &max_class_score, 0, &class_id);
+      // En YOLOv8, max_class_score es la confianza
+      if (max_class_score >= Config::CONFIDENCE_THRESHOLD) {
 
         // Solo detectar personas (class_id = 0)
-        if (class_id.x == Config::PERSON_CLASS_ID && max_class_score > 0.25) {
+        if (class_id.x == Config::PERSON_CLASS_ID) {
           float x = row[0];
           float y = row[1];
           float w = row[2];
@@ -137,7 +149,7 @@ public:
           // Filtrar por área mínima
           if (box.area() > Config::MIN_PERSON_AREA) {
             temp_boxes.push_back(box);
-            temp_confidences.push_back(confidence);
+            temp_confidences.push_back(max_class_score);
             class_ids.push_back(class_id.x);
           }
         }
@@ -293,6 +305,8 @@ public:
 
     // Cooldown para evitar spam
     if (elapsed < Config::DETECTION_COOLDOWN_MS) {
+      std::cout << "Waiting for cooldown " << Config::DETECTION_COOLDOWN_MS
+                << "ms" << std::endl;
       return;
     }
 
@@ -316,16 +330,49 @@ public:
       startVideoRecording(frame, 30);
     }
 
-    // Enviar a Telegram
+    // Enviar a Telegram mediante HTTP POST al servidor Python
+
+    // Convertir a ruta absoluta para evitar problemas con CWD del servidor
+    std::string abs_image_path = fs::absolute(image_path).string();
+
+    // 1. Enviar Imagen
+    // curl -X POST "http://localhost:8000/detect" -H "Content-Type:
+    // application/json" -d '{"file_path": "..."}'
+    std::string command = "curl -X POST \"http://localhost:8000/detect\" "
+                          "-H \"Content-Type: application/json\" "
+                          "-d '{\"file_path\": \"" +
+                          abs_image_path + "\"}' &";
+
+    // Usamos system para curl (simple y no bloqueante con &)
+    system(command.c_str());
+    std::cout << "⚡ HTTP Request sent for Image: " << abs_image_path
+              << std::endl;
+
+    /*
+    // El envío directo se deshabilita para usar el bot de Python
     std::stringstream message;
     message << "🚨 ALERTA: Detección de persona\n"
             << "👥 Personas: " << boxes.size() << "\n"
             << "⏰ " << timestamp;
 
     telegram_.sendDetectionPackage(image_path, video_path, message.str());
+    */
 
     stats_.images_sent++;
     if (!video_path.empty()) {
+      std::string abs_video_path = fs::absolute(video_path).string();
+
+      // 2. Enviar Video
+      std::string video_command =
+          "curl -X POST \"http://localhost:8000/detect\" "
+          "-H \"Content-Type: application/json\" "
+          "-d '{\"file_path\": \"" +
+          abs_video_path + "\"}' &";
+
+      system(video_command.c_str());
+      std::cout << "⚡ HTTP Request sent for Video: " << abs_video_path
+                << std::endl;
+
       stats_.videos_sent++;
     }
   }

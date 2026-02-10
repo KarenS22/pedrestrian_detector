@@ -10,6 +10,7 @@ numpy
 pillow>=10.1.0
 
 # Detección de Postura
+mediapipe
 # mmpose==1.3.0
 # mmcv==2.1.0
 # mmengine==0.10.1
@@ -23,3 +24,8 @@ moviepy>=1.0.3
 requests
 aiohttp>=3.9.1
 matplotlib>=3.8.2
+
+# Servidor HTTP
+fastapi
+uvicorn
+python-multipart

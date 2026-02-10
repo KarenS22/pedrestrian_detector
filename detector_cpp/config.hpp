@@ -20,7 +20,7 @@ const std::string TELEGRAM_API_URL = "https://api.telegram.org/bot";
 
 // ============= MODELO YOLO =============
 const std::string YOLO_MODEL_PATH = "../models/yolov8n.onnx";
-const float CONFIDENCE_THRESHOLD = 0.5f;
+const float CONFIDENCE_THRESHOLD = 0.9f;
 const float NMS_THRESHOLD = 0.4f;
 const int INPUT_WIDTH = 640;
 const int INPUT_HEIGHT = 640;
@@ -35,20 +35,20 @@ const int CAMERA_HEIGHT = 720;
 const int CAMERA_FPS = 30;
 
 // ============= DETECCIÓN =============
-const int DETECTION_COOLDOWN_MS = 3000; // Esperar 3s entre detecciones
-const int MIN_PERSON_AREA = 5000;       // Área mínima para considerar detección
-const bool SHOW_PREVIEW = true;         // Mostrar preview en tiempo real
+const int DETECTION_COOLDOWN_MS = 10000; // Esperar 3s entre detecciones
+const int MIN_PERSON_AREA = 5000; // Área mínima para considerar detección
+const bool SHOW_PREVIEW = true;   // Mostrar preview en tiempo real
 
 // ============= VIDEO RECORDING =============
 const bool RECORD_VIDEO = true;
 const int VIDEO_DURATION_SECONDS = 5;
-const std::string VIDEO_CODEC = "mp4v";
-const std::string TEMP_VIDEO_PATH = "../outputs/temp_video.mp4";
+const std::string VIDEO_CODEC = "avc1"; // H.264
+const std::string TEMP_VIDEO_PATH = "../../outputs/temp_video.mp4";
 
 // ============= RUTAS =============
-const std::string OUTPUTS_DIR = "../outputs/";
-const std::string DETECTIONS_DIR = "../outputs/detections/";
-const std::string LOGS_DIR = "../outputs/logs/";
+const std::string OUTPUTS_DIR = "../../outputs/";
+const std::string DETECTIONS_DIR = "../../outputs/detections/";
+const std::string LOGS_DIR = "../../outputs/logs/";
 
 // ============= VISUALIZACIÓN =============
 const cv::Scalar BBOX_COLOR = cv::Scalar(0, 255, 0); // Verde
