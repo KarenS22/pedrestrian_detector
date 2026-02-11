@@ -23,6 +23,7 @@ namespace fs = std::filesystem;
 class PersonDetector {
 private:
   cv::HOGDescriptor hog_;
+  cv::Ptr<cv::CLAHE> clahe_;
   Config::Stats stats_;
 
   std::chrono::steady_clock::time_point last_detection_time_;
@@ -39,6 +40,9 @@ public:
 
     // Cargar modelo HOG
     loadModel();
+
+    // Inicializar CLAHE
+    clahe_ = cv::createCLAHE(2.0, cv::Size(8, 8));
 
     last_detection_time_ = std::chrono::steady_clock::now();
   }
@@ -79,15 +83,25 @@ public:
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    // Detección HOG (RAW)
+    // Preprocesamiento (Gris -> CLAHE -> Blur)
+    cv::Mat gray, proc_img;
+    if (frame.channels() == 3) {
+      cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
+    } else {
+      gray = frame.clone();
+    }
+
+    clahe_->apply(gray, proc_img);
+    cv::GaussianBlur(proc_img, proc_img, cv::Size(3, 3), 0);
+
     std::vector<cv::Rect> found_locations;
     std::vector<double> found_weights;
 
-    hog_.detectMultiScale(frame, found_locations, found_weights,
+    hog_.detectMultiScale(proc_img, found_locations, found_weights,
                           Config::HIT_THRESHOLD, Config::WIN_STRIDE,
                           Config::PADDING, Config::SCALE,
-                          0.0,  // groupThreshold = 0 para obtener RAW boxes
-                          false // useMeanshiftGrouping
+                          0.0,  
+                          false
     );
 
     // Convertir a formato para NMS
@@ -139,30 +153,33 @@ public:
   void drawDetections(cv::Mat &frame, const std::vector<cv::Rect> &boxes,
                       const std::vector<float> &confidences) {
     for (size_t i = 0; i < boxes.size(); i++) {
-      // Dibujar bounding box
-      cv::rectangle(frame, boxes[i], Config::BBOX_COLOR,
-                    Config::BBOX_THICKNESS);
+      cv::Scalar color;
+      if (confidences[i] > Config::HIGH_CONFIDENCE_THRESHOLD) {
+        color = Config::BBOX_COLOR;
+        // Dibujar bounding box
+        cv::rectangle(frame, boxes[i], color, Config::BBOX_THICKNESS);
 
-      // Preparar texto
-      std::stringstream ss;
-      ss << "Person " << std::fixed << std::setprecision(2) << confidences[i];
-      std::string label = ss.str();
+        // Preparar texto
+        std::stringstream ss;
+        ss << "Person " << std::fixed << std::setprecision(2) << confidences[i];
+        std::string label = ss.str();
 
-      // Calcular tamaño del texto
-      int baseline;
-      cv::Size text_size = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX,
-                                           Config::FONT_SCALE, 2, &baseline);
+        // Calcular tamaño del texto
+        int baseline;
+        cv::Size text_size = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX,
+                                             Config::FONT_SCALE, 2, &baseline);
 
-      // Dibujar fondo del texto
-      cv::Point text_pos(boxes[i].x, boxes[i].y - 10);
-      cv::rectangle(frame,
-                    cv::Point(text_pos.x, text_pos.y - text_size.height - 5),
-                    cv::Point(text_pos.x + text_size.width, text_pos.y),
-                    Config::TEXT_BG_COLOR, -1);
+        // Dibujar fondo del texto
+        cv::Point text_pos(boxes[i].x, boxes[i].y - 10);
+        cv::rectangle(frame,
+                      cv::Point(text_pos.x, text_pos.y - text_size.height - 5),
+                      cv::Point(text_pos.x + text_size.width, text_pos.y),
+                      Config::TEXT_BG_COLOR, -1);
 
-      // Dibujar texto
-      cv::putText(frame, label, text_pos, cv::FONT_HERSHEY_SIMPLEX,
-                  Config::FONT_SCALE, Config::TEXT_COLOR, 2);
+        // Dibujar texto
+        cv::putText(frame, label, text_pos, cv::FONT_HERSHEY_SIMPLEX,
+                    Config::FONT_SCALE, color, 2);
+      }
     }
   }
 
@@ -294,15 +311,17 @@ public:
     // 1. Enviar Imagen
     // curl -X POST "http://localhost:8000/detect" -H "Content-Type:
     // application/json" -d '{"file_path": "..."}'
-    std::string command = "curl -X POST \"http://localhost:8000/detect\" "
-                          "-H \"Content-Type: application/json\" "
-                          "-d '{\"file_path\": \"" +
-                          abs_image_path + "\"}' &";
+    if (Config::SEND_TO_SERVER) {
+      std::string command = "curl -X POST \"http://localhost:8000/detect\" "
+                            "-H \"Content-Type: application/json\" "
+                            "-d '{\"file_path\": \"" +
+                            abs_image_path + "\"}' &";
 
-    // Usamos system para curl (simple y no bloqueante con &)
-    system(command.c_str());
-    std::cout << "⚡ HTTP Request sent for Image: " << abs_image_path
-              << std::endl;
+      // Usamos system para curl (simple y no bloqueante con &)
+      system(command.c_str());
+      std::cout << "⚡ HTTP Request sent for Image: " << abs_image_path
+                << std::endl;
+    }
 
     /*
     // El envío directo se deshabilita para usar el bot de Python
@@ -319,16 +338,18 @@ public:
       std::string abs_video_path = fs::absolute(video_path).string();
 
       // 2. Enviar Video
-      std::string video_command = "curl -X POST \"" +
-                                  Config::PYTHON_SERVER_URL +
-                                  "\" "
-                                  "-H \"Content-Type: application/json\" "
-                                  "-d '{\"file_path\": \"" +
-                                  abs_video_path + "\"}' &";
+      if (Config::SEND_TO_SERVER) {
+        std::string video_command = "curl -X POST \"" +
+                                    Config::PYTHON_SERVER_URL +
+                                    "\" "
+                                    "-H \"Content-Type: application/json\" "
+                                    "-d '{\"file_path\": \"" +
+                                    abs_video_path + "\"}' &";
 
-      system(video_command.c_str());
-      std::cout << "⚡ HTTP Request sent for Video: " << abs_video_path
-                << std::endl;
+        system(video_command.c_str());
+        std::cout << "⚡ HTTP Request sent for Video: " << abs_video_path
+                  << std::endl;
+      }
 
       stats_.videos_sent++;
     }
@@ -440,17 +461,20 @@ public:
       // independientemente de si hay cajas en ESTE frame.
 
       if (!finished_video_path.empty()) {
-        std::string abs_video_path = fs::absolute(finished_video_path).string();
-        std::string video_command = "curl -X POST \"" +
-                                    Config::PYTHON_SERVER_URL +
-                                    "\" "
-                                    "-H \"Content-Type: application/json\" "
-                                    "-d '{\"file_path\": \"" +
-                                    abs_video_path + "\"}' &";
+        if (Config::SEND_TO_SERVER) {
+          std::string abs_video_path =
+              fs::absolute(finished_video_path).string();
+          std::string video_command = "curl -X POST \"" +
+                                      Config::PYTHON_SERVER_URL +
+                                      "\" "
+                                      "-H \"Content-Type: application/json\" "
+                                      "-d '{\"file_path\": \"" +
+                                      abs_video_path + "\"}' &";
 
-        system(video_command.c_str());
-        std::cout << "⚡ HTTP Request sent for Video: " << abs_video_path
-                  << std::endl;
+          system(video_command.c_str());
+          std::cout << "⚡ HTTP Request sent for Video: " << abs_video_path
+                    << std::endl;
+        }
       }
 
       if (!boxes.empty() && !recording_video_) {

@@ -26,12 +26,15 @@ const cv::Size CELL_SIZE(8, 8);
 const int NBINS = 9;
 
 // Parámetros de Detección
-const double HIT_THRESHOLD = 0.7; // Según script usuario
+// Parámetros de Detección
+const double HIT_THRESHOLD = 0.3; // Según script usuario
 const cv::Size WIN_STRIDE(8, 8);
 const cv::Size PADDING(8, 8);
 const double SCALE = 1.05;
-const double SCORE_THRESHOLD = 0.4; // Filtro final (usuario usa > 0.6)
-const double NMS_THRESHOLD = 0.4;   // Solapamiento permitido (usuario usa 0.4)
+const double SCORE_THRESHOLD =
+    1.2; // Filtro final (Alineado con HIGH_CONFIDENCE_THRESHOLD)
+const double NMS_THRESHOLD = 0.4;  // Solapamiento permitido (usuario usa 0.4)
+const bool SEND_TO_SERVER = true; // Enviar a servidor Python
 
 // ============= CÁMARA =============
 const int CAMERA_INDEX = 2;
@@ -40,7 +43,7 @@ const int CAMERA_HEIGHT = 720;
 const int CAMERA_FPS = 30;
 
 // ============= DETECCIÓN =============
-const int DETECTION_COOLDOWN_MS = 5000; // Esperar 3s entre detecciones
+const int DETECTION_COOLDOWN_MS = 7000; // Esperar 7s entre detecciones
 const int MIN_PERSON_AREA = 15000;      // Área mínima para considerar detección
 const bool SHOW_PREVIEW = true;         // Mostrar preview en tiempo real
 
@@ -56,7 +59,11 @@ const std::string DETECTIONS_DIR = "../../outputs/detections/";
 const std::string LOGS_DIR = "../../outputs/logs/";
 
 // ============= VISUALIZACIÓN =============
-const cv::Scalar BBOX_COLOR = cv::Scalar(0, 255, 0); // Verde
+// ============= VISUALIZACIÓN =============
+const cv::Scalar BBOX_COLOR = cv::Scalar(0, 255, 0); // Verde (Alta confianza)
+const cv::Scalar BBOX_COLOR_LOW =
+    cv::Scalar(0, 165, 255);                 // Naranja (Media confianza)
+const float HIGH_CONFIDENCE_THRESHOLD = 1.2; // Umbral para color verde
 const int BBOX_THICKNESS = 2;
 const float FONT_SCALE = 0.7f;
 const cv::Scalar TEXT_COLOR = cv::Scalar(255, 255, 255); // Blanco
