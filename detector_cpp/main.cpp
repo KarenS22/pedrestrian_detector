@@ -7,12 +7,12 @@
 
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <opencv2/dnn.hpp>
 #include <opencv2/opencv.hpp>
-
-#include <filesystem>
-#include <iomanip>
 #include <sstream>
 
 #include "config.hpp"
@@ -22,8 +22,7 @@ namespace fs = std::filesystem;
 
 class PersonDetector {
 private:
-  cv::dnn::Net net_;
-  // TelegramSender telegram_; // REMOVED
+  cv::HOGDescriptor hog_;
   Config::Stats stats_;
 
   std::chrono::steady_clock::time_point last_detection_time_;
@@ -38,41 +37,39 @@ public:
     fs::create_directories(Config::DETECTIONS_DIR);
     fs::create_directories(Config::LOGS_DIR);
 
-    // Cargar modelo YOLO
+    // Cargar modelo HOG
     loadModel();
-
-    // Cargar modelo YOLO
-    loadModel();
-
-    // Telegram connection check removed
 
     last_detection_time_ = std::chrono::steady_clock::now();
   }
 
   void loadModel() {
-    std::cout << "Cargando modelo YOLO..." << std::endl;
+    std::cout << "Cargando modelo SVM (HOG)..." << std::endl;
 
-    try {
-      net_ = cv::dnn::readNetFromONNX(Config::YOLO_MODEL_PATH);
+    std::vector<float> svm_detector;
+    std::ifstream file(Config::SVM_MODEL_PATH);
 
-      // Configurar backend (preferir CUDA si está disponible)
-      if (cv::cuda::getCudaEnabledDeviceCount() > 0) {
-        std::cout << "✓ Usando CUDA" << std::endl;
-        net_.setPreferableBackend(cv::dnn::DNN_BACKEND_CUDA);
-        net_.setPreferableTarget(cv::dnn::DNN_TARGET_CUDA);
-      } else {
-        std::cout << "✓ Usando CPU" << std::endl;
-        net_.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
-        net_.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
-      }
-
-      std::cout << "✓ Modelo cargado correctamente" << std::endl;
-    } catch (const cv::Exception &e) {
-      std::cerr << "❌ Error cargando modelo: " << e.what() << std::endl;
-      std::cerr << "   Asegúrate de descargar yolov8n.onnx en: "
-                << Config::YOLO_MODEL_PATH << std::endl;
+    if (!file.is_open()) {
+      std::cerr << "❌ Error: No se pudo abrir " << Config::SVM_MODEL_PATH
+                << std::endl;
       exit(1);
     }
+
+    float weight;
+    while (file >> weight) {
+      svm_detector.push_back(weight);
+    }
+    file.close();
+
+    std::cout << "✓ Pesos cargados: " << svm_detector.size() << std::endl;
+
+    // Configurar HOG
+    hog_ = cv::HOGDescriptor(Config::WIN_SIZE, Config::BLOCK_SIZE,
+                             Config::BLOCK_STRIDE, Config::CELL_SIZE,
+                             Config::NBINS);
+    hog_.setSVMDetector(svm_detector);
+
+    std::cout << "✓ Modelo HOG configurado correctamente" << std::endl;
   }
 
   std::vector<cv::Rect> detectPersons(const cv::Mat &frame,
@@ -82,97 +79,59 @@ public:
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    // Preprocesar imagen
-    cv::Mat blob;
-    cv::dnn::blobFromImage(frame, blob, 1.0 / 255.0,
-                           cv::Size(Config::INPUT_WIDTH, Config::INPUT_HEIGHT),
-                           cv::Scalar(), true, false);
+    // Detección HOG (RAW)
+    std::vector<cv::Rect> found_locations;
+    std::vector<double> found_weights;
 
-    // Inferencia
-    net_.setInput(blob);
-    std::vector<cv::Mat> outputs;
-    net_.forward(outputs, net_.getUnconnectedOutLayersNames());
+    hog_.detectMultiScale(frame, found_locations, found_weights,
+                          Config::HIT_THRESHOLD, Config::WIN_STRIDE,
+                          Config::PADDING, Config::SCALE,
+                          0.0,  // groupThreshold = 0 para obtener RAW boxes
+                          false // useMeanshiftGrouping
+    );
 
-    // Procesar salidas (YOLOv8)
-    // Output shape: [1, 84, 8400] -> [batch, channels, anchors]
-    cv::Mat output0 = outputs[0];
-    int rows = output0.size[2];       // 8400 (anchors)
-    int dimensions = output0.size[1]; // 84 (4 bbox + 80 classes)
-
-    // Reshape to 2D matrix (84 x 8400)
-    cv::Mat output2d(dimensions, rows, CV_32F, output0.ptr<float>());
-
-    // Transpose to (8400 x 84) for easier row-by-row access
-    cv::Mat output_t;
-    cv::transpose(output2d, output_t);
-
-    float *data = (float *)output_t.data;
-
-    std::vector<int> class_ids;
+    // Convertir a formato para NMS
     std::vector<cv::Rect> temp_boxes;
     std::vector<float> temp_confidences;
 
-    float x_factor = frame.cols / (float)Config::INPUT_WIDTH;
-    float y_factor = frame.rows / (float)Config::INPUT_HEIGHT;
+    for (size_t i = 0; i < found_locations.size(); ++i) {
+      cv::Rect r = found_locations[i];
+      // Asegurar limites
+      r = r & cv::Rect(0, 0, frame.cols, frame.rows);
 
-    for (int i = 0; i < rows; ++i) {
-      float *row = data + i * dimensions;
-
-      // YOLOv8: 0-3 are bbox, 4-83 are class scores
-      float *classes_scores = row + 4;
-
-      cv::Mat scores(1, 80, CV_32FC1, classes_scores);
-      cv::Point class_id;
-      double max_class_score;
-      cv::minMaxLoc(scores, 0, &max_class_score, 0, &class_id);
-
-      // En YOLOv8, max_class_score es la confianza
-      if (max_class_score >= Config::CONFIDENCE_THRESHOLD) {
-
-        // Solo detectar personas (class_id = 0)
-        if (class_id.x == Config::PERSON_CLASS_ID) {
-          float x = row[0];
-          float y = row[1];
-          float w = row[2];
-          float h = row[3];
-
-          int left = int((x - w / 2) * x_factor);
-          int top = int((y - h / 2) * y_factor);
-          int width = int(w * x_factor);
-          int height = int(h * y_factor);
-
-          cv::Rect box(left, top, width, height);
-
-          // Filtrar por área mínima
-          if (box.area() > Config::MIN_PERSON_AREA) {
-            temp_boxes.push_back(box);
-            temp_confidences.push_back(max_class_score);
-            class_ids.push_back(class_id.x);
-          }
-        }
+      if (r.area() >= Config::MIN_PERSON_AREA) {
+        temp_boxes.push_back(r);
+        temp_confidences.push_back(static_cast<float>(found_weights[i]));
       }
     }
 
-    // Non-Maximum Suppression
+    // Aplicar NMS
     std::vector<int> indices;
-    cv::dnn::NMSBoxes(temp_boxes, temp_confidences,
-                      Config::CONFIDENCE_THRESHOLD, Config::NMS_THRESHOLD,
-                      indices);
+    // score_threshold para NMS (usuario usa 0.4)
+    cv::dnn::NMSBoxes(
+        temp_boxes, temp_confidences,
+        0.4f, // hardcoded 0.4 como en script usuario para NMS filter
+        static_cast<float>(Config::NMS_THRESHOLD), indices);
 
     for (int idx : indices) {
-      boxes.push_back(temp_boxes[idx]);
-      confidences.push_back(temp_confidences[idx]);
+      // Filtro final de score (usuario usa > 0.6)
+      if (temp_confidences[idx] > Config::SCORE_THRESHOLD) {
+        boxes.push_back(temp_boxes[idx]);
+        confidences.push_back(temp_confidences[idx]);
+      }
     }
 
     auto end = std::chrono::high_resolution_clock::now();
     auto duration =
         std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
-    // Actualizar estadísticas
-    stats_.avg_inference_time_ms =
-        (stats_.avg_inference_time_ms * stats_.total_detections +
-         duration.count()) /
-        (stats_.total_detections + 1);
+    // Actualizar estadísticas (Moving Average)
+    if (stats_.avg_inference_time_ms == 0) {
+      stats_.avg_inference_time_ms = duration.count();
+    } else {
+      stats_.avg_inference_time_ms =
+          0.9 * stats_.avg_inference_time_ms + 0.1 * duration.count();
+    }
 
     return boxes;
   }
@@ -390,7 +349,8 @@ public:
 
     std::cout << "GStreamer pipeline: " << pipeline.str() << std::endl;
 
-    cv::VideoCapture cap(pipeline.str(), cv::CAP_GSTREAMER);
+    // cv::VideoCapture cap(pipeline.str(), cv::CAP_GSTREAMER);
+    cv::VideoCapture cap("../../test_videos/b4.mp4");
 
     if (!cap.isOpened()) {
       std::cerr << "❌ No se pudo abrir la cámara con GStreamer" << std::endl;

@@ -15,15 +15,23 @@ namespace Config {
 // ============= SERVIDOR PYTHON =============
 const std::string PYTHON_SERVER_URL = "http://localhost:8000/detect";
 
-// ============= MODELO YOLO =============
-const std::string YOLO_MODEL_PATH = "../models/yolov8n.onnx";
-const float CONFIDENCE_THRESHOLD = 0.7f;
-const float NMS_THRESHOLD = 0.4f;
-const int INPUT_WIDTH = 640;
-const int INPUT_HEIGHT = 640;
+// ============= MODELO SVM (HOG) =============
+const std::string SVM_MODEL_PATH = "../models/svm_weights.txt";
 
-// Clase "person" en COCO dataset
-const int PERSON_CLASS_ID = 0;
+// Parámetros HOG (Deben coincidir con entrenamiento)
+const cv::Size WIN_SIZE(64, 128);
+const cv::Size BLOCK_SIZE(16, 16);
+const cv::Size BLOCK_STRIDE(8, 8);
+const cv::Size CELL_SIZE(8, 8);
+const int NBINS = 9;
+
+// Parámetros de Detección
+const double HIT_THRESHOLD = 0.7; // Según script usuario
+const cv::Size WIN_STRIDE(8, 8);
+const cv::Size PADDING(8, 8);
+const double SCALE = 1.05;
+const double SCORE_THRESHOLD = 0.4; // Filtro final (usuario usa > 0.6)
+const double NMS_THRESHOLD = 0.4;   // Solapamiento permitido (usuario usa 0.4)
 
 // ============= CÁMARA =============
 const int CAMERA_INDEX = 2;
@@ -32,9 +40,9 @@ const int CAMERA_HEIGHT = 720;
 const int CAMERA_FPS = 30;
 
 // ============= DETECCIÓN =============
-const int DETECTION_COOLDOWN_MS = 10000; // Esperar 3s entre detecciones
-const int MIN_PERSON_AREA = 5000; // Área mínima para considerar detección
-const bool SHOW_PREVIEW = true;   // Mostrar preview en tiempo real
+const int DETECTION_COOLDOWN_MS = 5000; // Esperar 3s entre detecciones
+const int MIN_PERSON_AREA = 15000;      // Área mínima para considerar detección
+const bool SHOW_PREVIEW = true;         // Mostrar preview en tiempo real
 
 // ============= VIDEO RECORDING =============
 const bool RECORD_VIDEO = true;
