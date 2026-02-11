@@ -21,7 +21,9 @@ from telegram.ext import (
 )
 import json
 
-SUBSCRIBERS_FILE = "subscribers.json"
+BASE_DIR = Path(__file__).resolve().parent
+SUBSCRIBERS_FILE = BASE_DIR / "subscribers.json"
+
 
 def load_subscribers():
     if not os.path.exists(SUBSCRIBERS_FILE):

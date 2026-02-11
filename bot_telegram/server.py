@@ -6,14 +6,16 @@ from pydantic import BaseModel
 from pathlib import Path
 import asyncio
 
-from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, OUTPUTS_DIR, DETECTIONS_DIR, POSES_DIR
+from config import TELEGRAM_BOT_TOKEN, OUTPUTS_DIR, DETECTIONS_DIR, POSES_DIR
 from pose_detector import PoseDetector
 from video_processor import VideoProcessor
 from telegram import Bot
 import json
     
 
-SUBSCRIBERS_FILE = "subscribers.json"
+BASE_DIR = Path(__file__).resolve().parent
+SUBSCRIBERS_FILE = BASE_DIR / "subscribers.json"
+
 
 def load_subscribers():
     if not os.path.exists(SUBSCRIBERS_FILE):
@@ -106,9 +108,10 @@ async def process_image(image_path: Path):
 
     # Enviar a Telegram
     try:
-        with open(image_path, 'rb') as f:
-            suscribers = load_subscribers()
-            for chat_id in suscribers:
+        
+        suscribers = load_subscribers()
+        for chat_id in suscribers:
+            with open(image_path, 'rb') as f:
                 await telegram_bot.send_photo(
                     chat_id=chat_id,
                     photo=f,
@@ -118,9 +121,10 @@ async def process_image(image_path: Path):
             
         caption = f"🎯 **Análisis de Postura**\n👥 Personas: {num_persons}\n🧘 Posturas:\n{posture_text}"
         
-        with open(pose_image_path, 'rb') as f:
-            suscribers = load_subscribers()
-            for chat_id in suscribers:
+        
+        suscribers = load_subscribers()
+        for chat_id in suscribers:
+            with open(pose_image_path, 'rb') as f:
                 await telegram_bot.send_photo(
                     chat_id=chat_id,
                     photo=f,
@@ -143,8 +147,9 @@ async def process_video(video_path: Path):
         # Enviar
         caption = f"🎥 **Video Analizado**\n⏱️ Duración: {video_info.get('duration', 0):.1f}s"
         
-        with open(pose_video_path, 'rb') as f:
-            for chat_id in suscribers:
+        
+        for chat_id in suscribers:
+            with open(pose_video_path, 'rb') as f:
                 await telegram_bot.send_video(
                     chat_id=chat_id,
                     video=f,

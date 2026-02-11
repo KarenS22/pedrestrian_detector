@@ -370,8 +370,13 @@ public:
 
     std::cout << "GStreamer pipeline: " << pipeline.str() << std::endl;
 
-    // cv::VideoCapture cap(pipeline.str(), cv::CAP_GSTREAMER);
-    cv::VideoCapture cap("../../test_videos/b4.mp4");
+        //cv::VideoCapture cap(pipeline.str(), cv::CAP_GSTREAMER);
+     cv::VideoCapture cap(Config::CAMERA_INDEX, cv::CAP_V4L2);
+
+      cap.set(cv::CAP_PROP_FRAME_WIDTH, 640);
+      cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
+      cap.set(cv::CAP_PROP_FPS, 30);
+    //cv::VideoCapture cap("../../test_videos/b4.mp4");
 
     if (!cap.isOpened()) {
       std::cerr << "❌ No se pudo abrir la cámara con GStreamer" << std::endl;
