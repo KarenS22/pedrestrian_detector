@@ -1,4 +1,5 @@
 import logging
+import os
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -9,6 +10,17 @@ from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, OUTPUTS_DIR, DETECTIONS
 from pose_detector import PoseDetector
 from video_processor import VideoProcessor
 from telegram import Bot
+import json
+    
+
+SUBSCRIBERS_FILE = "subscribers.json"
+
+def load_subscribers():
+    if not os.path.exists(SUBSCRIBERS_FILE):
+        return []
+    with open(SUBSCRIBERS_FILE, "r") as f:
+        return json.load(f)
+
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -95,28 +107,34 @@ async def process_image(image_path: Path):
     # Enviar a Telegram
     try:
         with open(image_path, 'rb') as f:
-            await telegram_bot.send_photo(
-                chat_id=TELEGRAM_CHAT_ID,
-                photo=f,
-                caption="📷 **Detección Original**",
-                parse_mode='Markdown'
-            )
+            suscribers = load_subscribers()
+            for chat_id in suscribers:
+                await telegram_bot.send_photo(
+                    chat_id=chat_id,
+                    photo=f,
+                    caption="📷 **Detección Original**",
+                    parse_mode='Markdown'
+                )
             
         caption = f"🎯 **Análisis de Postura**\n👥 Personas: {num_persons}\n🧘 Posturas:\n{posture_text}"
         
         with open(pose_image_path, 'rb') as f:
-            await telegram_bot.send_photo(
-                chat_id=TELEGRAM_CHAT_ID,
-                photo=f,
-                caption=caption,
-                parse_mode='Markdown'
-            )
+            suscribers = load_subscribers()
+            for chat_id in suscribers:
+                await telegram_bot.send_photo(
+                    chat_id=chat_id,
+                    photo=f,
+                    caption=caption,
+                    parse_mode='Markdown'
+                )
     except Exception as e:
         logger.error(f"Error enviando a Telegram: {e}")
 
 async def process_video(video_path: Path):
     try:
-        await telegram_bot.send_message(chat_id=TELEGRAM_CHAT_ID, text="🎥 Procesando video...")
+        suscribers = load_subscribers()
+        for chat_id in suscribers:
+            await telegram_bot.send_message(chat_id=chat_id, text="🎥 Procesando video...")
         
         # Procesar
         _, pose_video_path = video_processor.process_video_file(str(video_path))
@@ -126,12 +144,13 @@ async def process_video(video_path: Path):
         caption = f"🎥 **Video Analizado**\n⏱️ Duración: {video_info.get('duration', 0):.1f}s"
         
         with open(pose_video_path, 'rb') as f:
-            await telegram_bot.send_video(
-                chat_id=TELEGRAM_CHAT_ID,
-                video=f,
-                caption=caption,
-                parse_mode='Markdown'
-            )
+            for chat_id in suscribers:
+                await telegram_bot.send_video(
+                    chat_id=chat_id,
+                    video=f,
+                    caption=caption,
+                    parse_mode='Markdown'
+                )
     except Exception as e:
         logger.error(f"Error procesando video: {e}")
 

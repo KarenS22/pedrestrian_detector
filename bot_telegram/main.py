@@ -19,6 +19,32 @@ from telegram.ext import (
     ContextTypes,
     filters
 )
+import json
+
+SUBSCRIBERS_FILE = "subscribers.json"
+
+def load_subscribers():
+    if not os.path.exists(SUBSCRIBERS_FILE):
+        return []
+    with open(SUBSCRIBERS_FILE, "r") as f:
+        return json.load(f)
+
+def save_subscribers(subscribers):
+    with open(SUBSCRIBERS_FILE, "w") as f:
+        json.dump(subscribers, f)
+
+def add_subscriber(chat_id):
+    subs = load_subscribers()
+    if chat_id not in subs:
+        subs.append(chat_id)
+        save_subscribers(subs)
+
+def remove_subscriber(chat_id):
+    subs = load_subscribers()
+    if chat_id in subs:
+        subs.remove(chat_id)
+        save_subscribers(subs)
+
 
 from config import (
     TELEGRAM_BOT_TOKEN,
@@ -115,6 +141,16 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     
     await update.message.reply_text(stats_text, parse_mode='Markdown')
+
+async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    add_subscriber(chat_id)
+    await update.message.reply_text("✅ Te has suscrito a las notificaciones.")
+
+async def unsubscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    remove_subscriber(chat_id)
+    await update.message.reply_text("❌ Te has desuscrito de las notificaciones.")
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -351,11 +387,15 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("stats", stats_command))
+    application.add_handler(CommandHandler("subscribe", subscribe))
+    application.add_handler(CommandHandler("unsubscribe", unsubscribe))
     
     # Handlers para multimedia
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     application.add_handler(MessageHandler(filters.VIDEO, handle_video))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+    
+
     
     # Handler para botones
     application.add_handler(CallbackQueryHandler(button_callback))
